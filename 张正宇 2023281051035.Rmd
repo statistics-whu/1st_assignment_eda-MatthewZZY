@@ -1,0 +1,248 @@
+---
+title: "链家二手房数据分析报告"
+author: "张正宇 2023281051035"
+date: "`r Sys.Date()`"
+header-includes:
+  - \usepackage{ctex}
+  - \usepackage[utf8]{inputenc}
+  - \usepackage{fontspec}
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    code_folding: show
+    fig_caption: yes
+    fig_width: 10
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+  word_document:
+    toc: yes
+---
+```{r setup.include = FALSE,echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE,error = FALSE, warning = FALSE, message = FALSE,  out.width = "100%", split = FALSE, fig.align = "center")
+options(grDevices.checkFonts = FALSE)
+#load library
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(plotly)
+library(patchwork)
+library(ggrepel)
+library(dplyr)
+library(ggplot2)
+library(showtext)
+showtext_auto(enable = TRUE)
+```
+
+
+# 数据介绍
+
+本报告**链家**数据获取方式如下：
+
+报告人在2023年9月12日获取了[链家武汉二手房网站](https://wh.lianjia.com/ershoufang/)数据。
+
+-   链家二手房网站默认显示100页，每页30套房产，因此本数据包括3000套房产信息；
+
+-   数据包括了页面可见部分的文本信息，具体字段及说明见作业说明。
+
+**说明：**数据仅用于教学；由于不清楚链家数据的展示规则，因此数据可能并不是武汉二手房市场的随机抽样，结论很可能有很大的偏差，甚至可能是错误的。
+
+```{r}
+# 载入数据和预处理
+
+MM <- read.csv("C:/Users/Matthew/Desktop/HH.csv")
+# EDA ---------------------------------------------------------------------
+
+## 如下语句可以解决画图中的中文显示问题，当然你可以用showtext包来解决
+
+theme_set(theme(text = element_text(size = 10))) #这里family设置成你系统中的中文字体名。
+
+# 做一些数据预处理，比如把字符型变成factor。
+```
+
+
+各变量的简短信息：
+
+```{r}
+glimpse(MM)
+```
+
+各变量的简短统计：
+
+```{r}
+summary(MM)
+```
+
+
+可以看到：
+
+1.总价（price_ttl）的最小值为10.6w，最大值为1380.0w，平均值为155.9w。
+
+2.单价（price_sqm）的最小值为1771，最大值为44656，平均值为15148。
+
+3.卧室数量（bedrooms）的最小值为1，最大值为7，平均值为2.695。
+
+4.客厅数量（livingrooms）的最小值为0，最大值为4，平均值为1.709。
+
+5.建筑面积（building_area）的最小值为22.77，最大值为588.66，平均值为100.87
+
+6.主要朝向（directions1）最多为南
+
+7.次要朝向（directions2）最多为北
+
+8.装修状况（decoration）最多为精装
+
+9.楼栋总层数（property_t_height）最多为33，其次为34，最高为62
+
+10.建筑形式（property_style）最多板楼
+
+11.二手房网站的关注人数（followers）最多为262
+
+
+# 探索性分析
+
+## 数值描述与图形1:箱线图
+
+#### 绘制一个基于price_sqm和property_region的箱线图，以比较不同地区的价格分布情况。每个地区的箱线图会以不同的颜色进行区分
+
+```{r}
+MM  %>% ggplot(aes(price_sqm,color=property_region)) +
+  geom_boxplot() +
+  coord_flip() +
+  theme_bw(base_family = "Songti SC")
+```
+
+发现：
+
+-   中北路的价格中间值和最大值，都是在整个武汉区域最高的
+
+## 数值描述与图形2:散点图
+
+#### 按照building_area ,进行分组，统计出面积大于200的楼盘的单价
+
+```{r}
+ggplot(data = MM[MM$building_area > 200, ], aes(x = building_area, y = price_sqm)) +
+  # 创建一个散点图
+  geom_point(color = "red") +
+  # 添加x轴和y轴标签
+  xlab("面积") +
+  ylab("单价") +scale_size_continuous(range = c(3, 10))+
+  ggtitle("建筑面积大于200的每平米价格散点图")
+print(plot)
+```
+
+发现： - 大平方的房子从单价和面积上来看并没有直接关系，考虑单价并不能直接从稀缺户型入手
+
+
+
+## 数值描述与图形3:比例直方图
+
+####总价高于300W的房屋中，非精装房的比例
+
+```{r}
+# 
+filtered_data <- MM[MM$price_ttl > 300, ]
+
+# 2. 计算decoration不是精装的比例
+not_fine_decoration_percentage <- mean(filtered_data$decoration != "精装")
+
+# 3. 绘制比例直方图
+ggplot(data = data.frame(NotFineDecoration = c("不是精装", "是精装"), Percentage = c(not_fine_decoration_percentage, 1 - not_fine_decoration_percentage)),
+       aes(x = NotFineDecoration, y = Percentage, fill = NotFineDecoration)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(x = "装修类型", y = "比例", fill = "装修类型") +
+  ggtitle("总价大于300W的房屋装修类型比例")
+
+```
+
+发现：
+
+-- 在总价较高的二手房中，很小的比例为非精装，非精装的房子较难卖出高价
+
+
+
+
+
+## 探索问题1 楼层在本楼中的位置对价格的影响
+
+
+
+```{r}
+
+filtered_data <- MM %>% 
+  filter(property_height %in% c("高", "中", "低"))
+
+# 2. 计算每个组的总价平均值
+average_prices <- filtered_data %>%
+  group_by(property_height) %>%
+  summarize(mean_price_ttl = mean(price_ttl))
+
+# 3. 绘制直方图
+ggplot(data = average_prices, aes(x = property_height, y = mean_price_ttl, fill = property_height)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Property Height", y = "Average Price_ttl", fill = "Property Height") +
+  ggtitle("Property Height对应的Price_ttl平均值直方图")
+```
+
+
+--发现1 综合来看，中楼层在市场中的接受程度相对较差，总价相对较低
+--发现2 高低楼层之间的价格差距并无想象中的那么大，均价接近
+
+
+
+##探索问题2  房屋单价和靠近地铁是否有关系
+
+#### 分别绘制是否靠近地铁房价的箱线图
+
+```{r}
+# 绘制靠近地铁房价的箱线图
+ggplot(MM, aes(x = near_subway, y = price_sqm, fill = near_subway)) +
+  # 创建一个箱线图
+  geom_boxplot() +
+  # 设置Y轴标签
+  ylab("Price_sqm") +
+  # 设置图例标题
+  labs(fill = "Subway Proximity") +
+  # 可以添加其他自定义选项，如标题等
+  ggtitle("近地铁 vs. 不近地铁房屋单价中位数比较")
+```
+--发现1 综合来看，靠近地铁的房屋单价相对更高
+--发现2 近地铁的房屋能够卖出当前二手房市场的最高价，且大部分单价为3w以上的房源都靠近地铁
+
+
+##探索问题3  房屋单价和总层高的关系
+
+#### 绘制折线图
+
+```{r}
+# 使用dplyr计算平均数
+average_prices <- MM %>%
+  group_by(property_t_height) %>%
+  summarize(mean_price_sqm = mean(price_sqm))
+
+# 创建一个ggplot对象，指定数据和映射
+ggplot(average_prices, aes(x = property_t_height, y = mean_price_sqm)) +
+  # 创建一个折线图
+  geom_line() +
+  # 设置X轴和Y轴标签
+  xlab("层高") +
+  ylab("均价") +
+  # 添加其他自定义选项，如标题等
+  ggtitle("层高和单价关系折线图")
+```
+--发现1 超低楼层房子难以卖出高价
+--发现2 市场上对于超高楼层的接受度还算不错，能够卖出高价
+
+# 发现总结
+
+-- 房屋价格和多个因素有关，例如是否靠近地铁，房屋所在的区域，这些因素有关的房屋升值空间大
+
+-- 房屋单价和房屋的面积并没有直接的关系，单价的受制因素非常多，建议多方比对
+
+-- 房屋并不是买低楼层就卖不出好价格，主要还得看地理位置和面积大小
+
+
+
